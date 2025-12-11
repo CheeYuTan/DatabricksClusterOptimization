@@ -1012,6 +1012,7 @@ try:
             COUNT(DISTINCT DATE(nt.start_time)) AS days_active
         FROM system.compute.node_timeline nt
         WHERE nt.start_time >= date_sub(current_date(), {lookback_days})
+            AND nt.driver = false  -- Only worker nodes (where the actual compute happens)
         GROUP BY nt.cluster_id
     ),
     cluster_costs AS (
@@ -1088,6 +1089,7 @@ try:
             AVG(nt.cpu_user_percent + nt.cpu_system_percent) AS avg_cpu_percent
         FROM system.compute.node_timeline nt
         WHERE nt.start_time >= date_sub(current_date(), {lookback_days})
+            AND nt.driver = false  -- Only worker nodes
         GROUP BY nt.cluster_id
     ),
     cluster_costs AS (
