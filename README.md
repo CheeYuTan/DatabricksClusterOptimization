@@ -28,7 +28,6 @@ This toolkit consists of **two notebooks**:
 | **I/O-bound** | High I/O wait percentage | Delta Cache, Liquid Clustering for file pruning, storage-optimized (L-series) |
 | **Memory-bound** | High memory or swap usage | Memory-optimized (E-series), larger nodes, more workers |
 
-> 💡 **Photon Note**: For AI/ML workloads, Photon improves performance for Spark SQL, DataFrames, feature engineering, GraphFrames, and xgboost4j. See [Photon documentation](https://docs.databricks.com/aws/en/compute/photon#photon-features).
 
 ## 🚀 Quick Start
 
@@ -154,7 +153,7 @@ Each analysis section produces:
 
 ```
 ├── Cluster_Optimization_Analysis.py    # Notebook 1: DBR, VM Gen, Driver Sizing
-├── Resource_Utilization_Analysis.py    # Notebook 2: Photon, CPU, I/O, Memory
+├── Resource_Utilization_Analysis.py    # Notebook 2: CPU, I/O, Memory bottlenecks
 └── README.md                           # This file
 ```
 

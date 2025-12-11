@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # ⚡ Resource Utilization & Photon Analysis
+# MAGIC # 📊 Resource Utilization Analysis
 # MAGIC 
 # MAGIC This notebook analyzes cluster resource utilization to identify performance bottlenecks and optimization opportunities.
 # MAGIC 
@@ -187,8 +187,7 @@ try:
     display(spark.sql(high_cpu_photon_query))
 except Exception as e:
     print(f"⚠️ Could not query CPU utilization data: {e}")
-    print("This may be because system.compute.node_timeline is not available or you don't have access.")
-    print("Falling back to cost-based Photon candidate analysis below.")
+    print("Ensure you have SELECT access to system.compute.node_timeline.")
 
 # COMMAND ----------
 

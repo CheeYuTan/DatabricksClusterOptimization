@@ -14,7 +14,7 @@
 # MAGIC | **VM Generations** | Clusters using older Azure VM generations (v3, v4) | Newer generations offer better price/performance |
 # MAGIC | **Driver Sizing** | Oversized driver nodes (high vCPU/memory) | Drivers often don't need large VMs; right-sizing reduces costs |
 # MAGIC 
-# MAGIC > 💡 **For Photon & Resource Utilization analysis**, see the companion notebook: `Resource_Utilization_Analysis`
+# MAGIC > 💡 **For Resource Utilization analysis** (CPU, I/O, Memory bottlenecks), see: `Resource_Utilization_Analysis`
 # MAGIC 
 # MAGIC ---
 # MAGIC 
@@ -924,17 +924,16 @@ else:
 
 # MAGIC %md
 # MAGIC ---
-# MAGIC ## ➡️ Next Steps: Resource Utilization & Photon Analysis
+# MAGIC ## ➡️ Next Steps: Resource Utilization Analysis
 # MAGIC 
-# MAGIC For **Photon adoption analysis** and **resource utilization insights** (CPU, I/O, Memory bottlenecks), run the companion notebook:
+# MAGIC For **resource utilization insights** (CPU, I/O, Memory bottlenecks), run the companion notebook:
 # MAGIC 
 # MAGIC **`Resource_Utilization_Analysis`**
 # MAGIC 
 # MAGIC This notebook analyzes:
-# MAGIC - ⚡ Photon adoption rates and candidates
-# MAGIC - 🔥 High CPU clusters (best Photon candidates)
-# MAGIC - 💾 High I/O wait clusters (Delta Cache candidates)
-# MAGIC - 🧠 Memory-constrained clusters
+# MAGIC - 🔥 High CPU clusters → Photon, F-series, larger nodes, more workers
+# MAGIC - 💾 High I/O wait clusters → Delta Cache, Liquid Clustering
+# MAGIC - 🧠 Memory-constrained clusters → E-series, larger nodes, more workers
 
 # COMMAND ----------
 
