@@ -988,14 +988,178 @@ display(spark.sql(photon_adoption_query))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 🎯 Photon Candidates
+# MAGIC ### 🔥 High CPU Utilization Clusters (Best Photon Candidates)
 # MAGIC 
-# MAGIC These clusters are **good candidates for Photon** based on their characteristics:
+# MAGIC Clusters with **high CPU utilization** are the best candidates for Photon because they are compute-bound.
+# MAGIC 
+# MAGIC **Logic**: 
+# MAGIC - High CPU (>50% avg) + Not using Photon + Not ML Runtime = **Ideal Photon candidate**
+# MAGIC - These workloads are spending time computing, not waiting on I/O
+# MAGIC 
+# MAGIC > **Note**: This query uses `system.compute.node_timeline` for utilization data. If you don't have access, this cell will show an error.
+
+# COMMAND ----------
+
+# High CPU Utilization Clusters - Best Photon Candidates
+# Using system.compute.node_timeline for CPU metrics
+try:
+    high_cpu_photon_query = f"""
+    WITH cluster_cpu_stats AS (
+        SELECT 
+            nt.cluster_id,
+            ROUND(AVG(nt.cpu_user_percent + nt.cpu_system_percent), 2) AS avg_cpu_percent,
+            ROUND(MAX(nt.cpu_user_percent + nt.cpu_system_percent), 2) AS max_cpu_percent,
+            COUNT(DISTINCT DATE(nt.start_time)) AS days_active
+        FROM system.compute.node_timeline nt
+        WHERE nt.start_time >= date_sub(current_date(), {lookback_days})
+        GROUP BY nt.cluster_id
+    ),
+    cluster_costs AS (
+        SELECT 
+            u.usage_metadata.cluster_id,
+            ROUND(SUM(u.usage_quantity), 2) AS total_dbus,
+            ROUND(SUM(u.usage_quantity * COALESCE(lp.pricing.default, 0)), 2) AS total_cost_usd
+        FROM system.billing.usage u
+        LEFT JOIN system.billing.list_prices lp 
+            ON u.sku_name = lp.sku_name
+            AND u.usage_start_time >= lp.price_start_time
+            AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
+        WHERE u.usage_start_time >= date_sub(current_date(), {lookback_days})
+            AND u.usage_metadata.cluster_id IS NOT NULL
+        GROUP BY u.usage_metadata.cluster_id
+    )
+    SELECT 
+        c.account_id,
+        c.workspace_id,
+        c.cluster_id,
+        c.cluster_name,
+        c.owned_by AS owner,
+        c.dbr_version,
+        CASE 
+            WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '🤖 ML Runtime'
+            WHEN LOWER(c.dbr_version) LIKE '%gpu%' THEN '🎮 GPU Runtime'
+            ELSE '📊 Standard Runtime'
+        END AS runtime_type,
+        cpu.avg_cpu_percent,
+        cpu.max_cpu_percent,
+        cpu.days_active,
+        COALESCE(cc.total_dbus, 0) AS total_dbus,
+        COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
+        CASE 
+            WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '⚠️ ML Runtime - evaluate carefully'
+            WHEN cpu.avg_cpu_percent >= 70 THEN '🔴 HIGH PRIORITY - Very CPU-bound'
+            WHEN cpu.avg_cpu_percent >= 50 THEN '🟠 GOOD CANDIDATE - CPU-bound'
+            WHEN cpu.avg_cpu_percent >= 30 THEN '🟡 MODERATE - Some CPU usage'
+            ELSE '🟢 LOW PRIORITY - Not CPU-bound'
+        END AS photon_priority
+    FROM system.compute.clusters c
+    JOIN cluster_cpu_stats cpu ON c.cluster_id = cpu.cluster_id
+    LEFT JOIN cluster_costs cc ON c.cluster_id = cc.cluster_id
+    WHERE c.delete_time IS NULL
+        AND c.change_time >= date_sub(current_date(), {lookback_days})
+        AND {workspace_clause}
+        AND LOWER(c.dbr_version) NOT LIKE '%photon%'
+        AND cpu.avg_cpu_percent >= 30  -- Only show clusters with meaningful CPU usage
+    ORDER BY 
+        cpu.avg_cpu_percent DESC,
+        cc.total_cost_usd DESC NULLS LAST
+    """
+    display(spark.sql(high_cpu_photon_query))
+except Exception as e:
+    print(f"⚠️ Could not query CPU utilization data: {e}")
+    print("This may be because system.compute.node_timeline is not available or you don't have access.")
+    print("Falling back to cost-based Photon candidate analysis below.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 📊 CPU Utilization Summary for Non-Photon Clusters
+# MAGIC 
+# MAGIC Aggregated view of CPU utilization patterns for clusters not using Photon.
+
+# COMMAND ----------
+
+# CPU Utilization Summary
+try:
+    cpu_summary_query = f"""
+    WITH cluster_cpu_stats AS (
+        SELECT 
+            nt.cluster_id,
+            AVG(nt.cpu_user_percent + nt.cpu_system_percent) AS avg_cpu_percent
+        FROM system.compute.node_timeline nt
+        WHERE nt.start_time >= date_sub(current_date(), {lookback_days})
+        GROUP BY nt.cluster_id
+    ),
+    cluster_costs AS (
+        SELECT 
+            u.usage_metadata.cluster_id,
+            SUM(u.usage_quantity) AS total_dbus,
+            SUM(u.usage_quantity * COALESCE(lp.pricing.default, 0)) AS total_cost_usd
+        FROM system.billing.usage u
+        LEFT JOIN system.billing.list_prices lp 
+            ON u.sku_name = lp.sku_name
+            AND u.usage_start_time >= lp.price_start_time
+            AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
+        WHERE u.usage_start_time >= date_sub(current_date(), {lookback_days})
+            AND u.usage_metadata.cluster_id IS NOT NULL
+        GROUP BY u.usage_metadata.cluster_id
+    )
+    SELECT 
+        CASE 
+            WHEN cpu.avg_cpu_percent >= 70 THEN '🔴 High CPU (>=70%)'
+            WHEN cpu.avg_cpu_percent >= 50 THEN '🟠 Medium-High CPU (50-70%)'
+            WHEN cpu.avg_cpu_percent >= 30 THEN '🟡 Medium CPU (30-50%)'
+            ELSE '🟢 Low CPU (<30%)'
+        END AS cpu_utilization_band,
+        CASE 
+            WHEN cpu.avg_cpu_percent >= 50 THEN '✅ Good Photon Candidate'
+            WHEN cpu.avg_cpu_percent >= 30 THEN '⚠️ Evaluate for Photon'
+            ELSE '❌ Likely I/O bound - Photon may not help'
+        END AS photon_suitability,
+        COUNT(DISTINCT c.cluster_id) AS cluster_count,
+        ROUND(SUM(COALESCE(cc.total_dbus, 0)), 2) AS total_dbus,
+        ROUND(SUM(COALESCE(cc.total_cost_usd, 0)), 2) AS total_cost_usd
+    FROM system.compute.clusters c
+    JOIN cluster_cpu_stats cpu ON c.cluster_id = cpu.cluster_id
+    LEFT JOIN cluster_costs cc ON c.cluster_id = cc.cluster_id
+    WHERE c.delete_time IS NULL
+        AND c.change_time >= date_sub(current_date(), {lookback_days})
+        AND {workspace_clause}
+        AND LOWER(c.dbr_version) NOT LIKE '%photon%'
+        AND LOWER(c.dbr_version) NOT LIKE '%ml%'
+    GROUP BY 
+        CASE 
+            WHEN cpu.avg_cpu_percent >= 70 THEN '🔴 High CPU (>=70%)'
+            WHEN cpu.avg_cpu_percent >= 50 THEN '🟠 Medium-High CPU (50-70%)'
+            WHEN cpu.avg_cpu_percent >= 30 THEN '🟡 Medium CPU (30-50%)'
+            ELSE '🟢 Low CPU (<30%)'
+        END,
+        CASE 
+            WHEN cpu.avg_cpu_percent >= 50 THEN '✅ Good Photon Candidate'
+            WHEN cpu.avg_cpu_percent >= 30 THEN '⚠️ Evaluate for Photon'
+            ELSE '❌ Likely I/O bound - Photon may not help'
+        END
+    ORDER BY 
+        CASE 
+            WHEN cpu.avg_cpu_percent >= 70 THEN 1
+            WHEN cpu.avg_cpu_percent >= 50 THEN 2
+            WHEN cpu.avg_cpu_percent >= 30 THEN 3
+            ELSE 4
+        END
+    """
+    display(spark.sql(cpu_summary_query))
+except Exception as e:
+    print(f"⚠️ Could not query CPU summary: {e}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 🎯 Photon Candidates (Cost-Based Fallback)
+# MAGIC 
+# MAGIC If CPU utilization data is not available, these clusters are identified as Photon candidates based on:
 # MAGIC - Not using ML runtime (Photon doesn't accelerate ML libraries)
 # MAGIC - Not already using Photon
 # MAGIC - Have significant DBU consumption (worth the upgrade effort)
-# MAGIC 
-# MAGIC **Note**: For best results, also consider cluster utilization metrics (high CPU usage indicates compute-bound workloads that benefit most from Photon).
 
 # COMMAND ----------
 
