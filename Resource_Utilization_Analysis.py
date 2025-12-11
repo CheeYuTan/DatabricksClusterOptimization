@@ -535,8 +535,7 @@ try:
             cs.avg_swap_percent,
             cc.total_cost_usd,
             CASE 
-                WHEN cs.avg_swap_percent >= 5 THEN 'Memory-bound (Swapping)'
-                WHEN cs.avg_memory_percent >= 80 THEN 'Memory-bound'
+                WHEN cs.avg_swap_percent >= 5 OR cs.avg_memory_percent >= 80 THEN 'Memory-bound'
                 WHEN cs.avg_io_wait_percent >= 20 THEN 'I/O-bound'
                 WHEN cs.avg_cpu_percent >= 50 THEN 'CPU-bound'
                 ELSE 'Balanced/Underutilized'
@@ -553,7 +552,7 @@ try:
         CASE 
             WHEN bottleneck_type = 'CPU-bound' THEN '⚡ Enable Photon, compute-optimized (F-series), larger nodes, or more workers'
             WHEN bottleneck_type = 'I/O-bound' THEN '💾 Enable Delta Cache, Liquid Clustering, storage-optimized (L-series)'
-            WHEN bottleneck_type LIKE 'Memory%' THEN '🧠 Memory-optimized (E-series), larger nodes, or more workers'
+            WHEN bottleneck_type = 'Memory-bound' THEN '🧠 Memory-optimized (E-series), larger nodes, or more workers'
             ELSE '✅ No immediate action needed'
         END AS recommendation,
         COUNT(*) AS cluster_count,

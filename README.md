@@ -120,8 +120,7 @@ Different Azure VM series have different recommended minimum generations:
 |------------|--------|-----------|--------|
 | **CPU-bound** | `avg_cpu_percent` | >=50% | Enable Photon, compute-optimized (F-series), larger nodes, or more workers |
 | **I/O-bound** | `cpu_wait_percent` | >=10% | Enable Delta Cache, Liquid Clustering, storage-optimized (L-series) |
-| **Memory-bound** | `memory_used_percent` | >=70% | Memory-optimized (E-series), larger nodes, or more workers |
-| **Swapping** | `swap_used_percent` | >=5% | Memory-optimized (E-series), larger nodes, or more workers |
+| **Memory-bound** | `memory_used_percent` OR `swap_used_percent` | >=80% OR >=5% | Memory-optimized (E-series), larger nodes, or more workers |
 
 ## 📊 Output
 
