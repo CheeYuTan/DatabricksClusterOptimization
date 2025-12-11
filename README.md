@@ -2,7 +2,10 @@
 
 A Databricks notebook for identifying cost optimization opportunities in your clusters by analyzing configurations against best practices.
 
-> ⚠️ **Azure Databricks Only**: This notebook is currently designed for **Azure Databricks** only. The VM generation analysis uses Azure-specific VM naming conventions (e.g., `Standard_D4ds_v5`, `Standard_E8s_v4`). Support for AWS and GCP may be added in future versions.
+> ⚠️ **Cloud Compatibility Note**:
+> - **DBR Version Analysis** - ✅ Works on Azure, AWS, and GCP
+> - **Driver Sizing Analysis** - ✅ Works on Azure, AWS, and GCP  
+> - **VM Generation Analysis** - ⚠️ **Azure only** (uses Azure-specific VM naming conventions like `Standard_D4ds_v5`). AWS/GCP support may be added in future versions.
 
 ## 📋 Overview
 
