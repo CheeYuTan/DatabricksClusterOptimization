@@ -36,11 +36,37 @@ This notebook queries Unity Catalog system tables:
 - `system.billing.usage` - Usage/billing data
 - `system.billing.list_prices` - List prices for cost calculation
 
-> **Note**: Contact your workspace admin if you encounter access errors.
+### Granting Access to System Tables
 
-### Required Permissions
+**No user has access to system tables by default.** A **metastore admin** who is also an **account admin** must grant permissions:
 
-- Read access to the above system tables
+```sql
+-- Grant access to compute system tables
+GRANT USE SCHEMA ON system.compute TO `user@example.com`;
+GRANT SELECT ON system.compute.clusters TO `user@example.com`;
+GRANT SELECT ON system.compute.node_types TO `user@example.com`;
+
+-- Grant access to billing system tables
+GRANT USE SCHEMA ON system.billing TO `user@example.com`;
+GRANT SELECT ON system.billing.usage TO `user@example.com`;
+GRANT SELECT ON system.billing.list_prices TO `user@example.com`;
+```
+
+Or grant to a group for easier management:
+
+```sql
+GRANT USE SCHEMA ON system.compute TO `data-analysts`;
+GRANT SELECT ON system.compute.clusters TO `data-analysts`;
+GRANT SELECT ON system.compute.node_types TO `data-analysts`;
+GRANT USE SCHEMA ON system.billing TO `data-analysts`;
+GRANT SELECT ON system.billing.usage TO `data-analysts`;
+GRANT SELECT ON system.billing.list_prices TO `data-analysts`;
+```
+
+> **Note**: System tables are read-only and cannot be modified. See [Manage privileges in Unity Catalog](https://docs.databricks.com/en/data-governance/unity-catalog/manage-privileges/index.html) for more details.
+
+### Additional Permissions
+
 - (Optional) Write access to the output catalog/schema for saving results
 
 ## ⚙️ Configuration
