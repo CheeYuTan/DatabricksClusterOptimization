@@ -6,6 +6,8 @@
 # MAGIC 
 # MAGIC > ⚠️ **Disclaimer**: System tables provide high-level utilization metrics only. Spark cluster tuning is a complex topic with many variables (data skew, shuffle optimization, broadcast joins, caching strategies, etc.). The recommendations below are **general guidelines** based on resource utilization patterns. There are many other ways to address performance issues depending on your specific workload characteristics. For comprehensive tuning, consider analyzing Spark UI, query plans, and application-specific metrics.
 # MAGIC 
+# MAGIC > 💡 **Best Practice**: First optimize your **workload & data layout** (query tuning, partitioning, Liquid Clustering, caching), then scale hardware if needed. Don't throw resources at inefficient code.
+# MAGIC 
 # MAGIC ---
 # MAGIC 
 # MAGIC ## 📋 What This Notebook Does

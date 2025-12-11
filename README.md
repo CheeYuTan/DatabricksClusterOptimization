@@ -29,6 +29,8 @@ This toolkit consists of **two notebooks**:
 | **Memory-bound** | High memory or swap usage | Memory-optimized (E-series), larger nodes, more workers |
 
 > ⚠️ **Disclaimer**: System tables provide high-level utilization metrics only. Spark cluster tuning is complex with many variables. The recommendations are **general guidelines** - there are many other ways to address performance issues depending on your specific workload.
+>
+> 💡 **Best Practice**: First optimize your **workload & data layout**, then scale hardware if needed.
 
 
 ## 🚀 Quick Start
