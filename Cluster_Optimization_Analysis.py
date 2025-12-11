@@ -1050,7 +1050,7 @@ try:
             WHEN cpu.avg_cpu_percent >= 70 THEN '🔴 HIGH PRIORITY - Very CPU-bound'
             WHEN cpu.avg_cpu_percent >= 50 THEN '🟠 GOOD CANDIDATE - CPU-bound'
             WHEN cpu.avg_cpu_percent >= 30 THEN '🟡 MODERATE - Some CPU usage'
-            ELSE '🟢 LOW PRIORITY - Not CPU-bound'
+            ELSE '🟢 LOW PRIORITY - Not CPU-bound (I/O, memory, or idle)'
         END AS photon_priority
     FROM system.compute.clusters c
     JOIN cluster_cpu_stats cpu ON c.cluster_id = cpu.cluster_id
@@ -1114,7 +1114,7 @@ try:
         CASE 
             WHEN cpu.avg_cpu_percent >= 50 THEN '✅ Good Photon Candidate'
             WHEN cpu.avg_cpu_percent >= 30 THEN '⚠️ Evaluate for Photon'
-            ELSE '❌ Likely I/O bound - Photon may not help'
+            ELSE '❌ Not CPU-bound (I/O, memory, or other bottleneck)'
         END AS photon_suitability,
         COUNT(DISTINCT c.cluster_id) AS cluster_count,
         ROUND(SUM(COALESCE(cc.total_dbus, 0)), 2) AS total_dbus,
