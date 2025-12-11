@@ -28,6 +28,8 @@ This toolkit consists of **two notebooks**:
 | **I/O-bound** | High I/O wait percentage | Delta Cache, Liquid Clustering for file pruning, storage-optimized (L-series) |
 | **Memory-bound** | High memory or swap usage | Memory-optimized (E-series), larger nodes, more workers |
 
+> ⚠️ **Disclaimer**: System tables provide high-level utilization metrics only. Spark cluster tuning is complex with many variables. The recommendations are **general guidelines** - there are many other ways to address performance issues depending on your specific workload.
+
 
 ## 🚀 Quick Start
 
