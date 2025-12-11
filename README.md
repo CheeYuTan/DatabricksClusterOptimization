@@ -20,14 +20,13 @@ This toolkit consists of **two notebooks**:
 | **VM Generations** | Clusters using older Azure VM generations (v3, v4) | Newer generations offer better price/performance |
 | **Driver Sizing** | Oversized driver nodes (high vCPU/memory) | Drivers often don't need large VMs; right-sizing reduces costs |
 
-### Notebook 2: Resource Utilization & Photon Analysis
+### Notebook 2: Resource Utilization Analysis
 
-| Analysis Area | What We Check | Recommendation |
-|---------------|---------------|----------------|
-| **Photon Adoption** | Clusters not using Photon | Enable Photon for SQL/DataFrame workloads |
-| **CPU Utilization** | High CPU usage on worker nodes | Enable Photon, compute-optimized (F-series), larger nodes, or more workers |
-| **I/O Wait** | High I/O wait percentage | Enable Delta Cache, Liquid Clustering, storage-optimized (L-series) |
-| **Memory Pressure** | High memory usage / swapping | Memory-optimized (E-series), larger nodes, or more workers |
+| Bottleneck | What We Check | Recommendation |
+|------------|---------------|----------------|
+| **CPU-bound** | High CPU usage on worker nodes | Enable Photon, compute-optimized (F-series), larger nodes, more workers |
+| **I/O-bound** | High I/O wait percentage | Delta Cache, Liquid Clustering for file pruning, storage-optimized (L-series) |
+| **Memory-bound** | High memory or swap usage | Memory-optimized (E-series), larger nodes, more workers |
 
 > 💡 **Photon Note**: For AI/ML workloads, Photon improves performance for Spark SQL, DataFrames, feature engineering, GraphFrames, and xgboost4j. See [Photon documentation](https://docs.databricks.com/aws/en/compute/photon#photon-features).
 
@@ -114,13 +113,13 @@ Different Azure VM series have different recommended minimum generations:
 | M | Large Memory | v2 |
 | N | GPU | v1 |
 
-## 📊 Resource Utilization Thresholds
+## 📊 Resource Utilization Thresholds (Configurable via Widgets)
 
-| Bottleneck | Metric | Threshold | Action |
-|------------|--------|-----------|--------|
-| **CPU-bound** | `avg_cpu_percent` | >=50% | Enable Photon, compute-optimized (F-series), larger nodes, or more workers |
-| **I/O-bound** | `cpu_wait_percent` | >=10% | Enable Delta Cache, Liquid Clustering, storage-optimized (L-series) |
-| **Memory-bound** | `memory_used_percent` OR `swap_used_percent` | >=80% OR >=5% | Memory-optimized (E-series), larger nodes, or more workers |
+| Bottleneck | Metric | Default | Action |
+|------------|--------|---------|--------|
+| **CPU-bound** | `avg_cpu_percent` | >=70% | Enable Photon, compute-optimized (F-series), larger nodes, more workers |
+| **I/O-bound** | `cpu_wait_percent` | >=10% | Delta Cache, Liquid Clustering for file pruning, storage-optimized (L-series) |
+| **Memory-bound** | `memory_used_percent` OR `swap_used_percent` | >=80% OR >=1% | Memory-optimized (E-series), larger nodes, more workers |
 
 ## 📊 Output
 
