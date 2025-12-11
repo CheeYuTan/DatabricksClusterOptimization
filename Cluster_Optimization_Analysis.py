@@ -1047,12 +1047,12 @@ try:
         COALESCE(cc.total_dbus, 0) AS total_dbus,
         COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
         CASE 
-            WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '⚠️ ML Runtime - evaluate carefully'
-            WHEN cpu.avg_cpu_percent >= 70 THEN '🔴 HIGH PRIORITY - Very CPU-bound'
-            WHEN cpu.avg_cpu_percent >= 50 THEN '🟠 GOOD CANDIDATE - CPU-bound'
-            WHEN cpu.avg_cpu_percent >= 30 THEN '🟡 MODERATE - Some CPU usage'
+            WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '⚠️ ML Runtime - Photon won'\''t help, consider more CPU cores'
+            WHEN cpu.avg_cpu_percent >= 70 THEN '🔴 HIGH PRIORITY - Enable Photon OR increase CPU cores'
+            WHEN cpu.avg_cpu_percent >= 50 THEN '🟠 GOOD CANDIDATE - Enable Photon OR add workers'
+            WHEN cpu.avg_cpu_percent >= 30 THEN '🟡 MODERATE - Consider Photon for SQL workloads'
             ELSE '🟢 LOW PRIORITY - Not CPU-bound (I/O, memory, or idle)'
-        END AS photon_priority
+        END AS recommendation
     FROM system.compute.clusters c
     JOIN cluster_cpu_stats cpu ON c.cluster_id = cpu.cluster_id
     LEFT JOIN cluster_costs cc ON c.cluster_id = cc.cluster_id
@@ -1152,6 +1152,235 @@ try:
     display(spark.sql(cpu_summary_query))
 except Exception as e:
     print(f"⚠️ Could not query CPU summary: {e}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 💾 High I/O Wait Clusters (Delta Cache Candidates)
+# MAGIC 
+# MAGIC Clusters with **high I/O wait** are spending time waiting for storage. Recommendations:
+# MAGIC - **Enable Delta Cache** - caches remote data on local SSD
+# MAGIC - **Use faster storage tier** - Premium storage, or move data closer
+# MAGIC - **Optimize data layout** - Z-ordering, compaction, partition pruning
+
+# COMMAND ----------
+
+# High I/O Wait Clusters - Delta Cache Candidates
+try:
+    high_io_wait_query = f"""
+    WITH cluster_io_stats AS (
+        SELECT 
+            nt.cluster_id,
+            ROUND(AVG(nt.cpu_wait_percent), 2) AS avg_io_wait_percent,
+            ROUND(MAX(nt.cpu_wait_percent), 2) AS max_io_wait_percent,
+            ROUND(AVG(nt.cpu_user_percent + nt.cpu_system_percent), 2) AS avg_cpu_percent
+        FROM system.compute.node_timeline nt
+        WHERE nt.start_time >= date_sub(current_date(), {lookback_days})
+            AND nt.driver = false
+        GROUP BY nt.cluster_id
+        HAVING AVG(nt.cpu_wait_percent) >= 10  -- Significant I/O wait
+    ),
+    cluster_costs AS (
+        SELECT 
+            u.usage_metadata.cluster_id,
+            ROUND(SUM(u.usage_quantity), 2) AS total_dbus,
+            ROUND(SUM(u.usage_quantity * COALESCE(lp.pricing.default, 0)), 2) AS total_cost_usd
+        FROM system.billing.usage u
+        LEFT JOIN system.billing.list_prices lp 
+            ON u.sku_name = lp.sku_name
+            AND u.usage_start_time >= lp.price_start_time
+            AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
+        WHERE u.usage_start_time >= date_sub(current_date(), {lookback_days})
+            AND u.usage_metadata.cluster_id IS NOT NULL
+        GROUP BY u.usage_metadata.cluster_id
+    )
+    SELECT 
+        c.account_id,
+        c.workspace_id,
+        c.cluster_id,
+        c.cluster_name,
+        c.owned_by AS owner,
+        c.dbr_version,
+        io.avg_io_wait_percent,
+        io.max_io_wait_percent,
+        io.avg_cpu_percent,
+        c.driver_node_type,
+        c.worker_node_type,
+        COALESCE(cc.total_dbus, 0) AS total_dbus,
+        COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
+        CASE 
+            WHEN io.avg_io_wait_percent >= 30 THEN '🔴 HIGH I/O WAIT - Enable Delta Cache + optimize data layout'
+            WHEN io.avg_io_wait_percent >= 20 THEN '🟠 MEDIUM I/O WAIT - Consider Delta Cache'
+            ELSE '🟡 MODERATE I/O WAIT - Review data access patterns'
+        END AS recommendation
+    FROM system.compute.clusters c
+    JOIN cluster_io_stats io ON c.cluster_id = io.cluster_id
+    LEFT JOIN cluster_costs cc ON c.cluster_id = cc.cluster_id
+    WHERE c.delete_time IS NULL
+        AND c.change_time >= date_sub(current_date(), {lookback_days})
+        AND {workspace_clause}
+    ORDER BY io.avg_io_wait_percent DESC, cc.total_cost_usd DESC NULLS LAST
+    """
+    display(spark.sql(high_io_wait_query))
+except Exception as e:
+    print(f"⚠️ Could not query I/O wait data: {e}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 🧠 High Memory Utilization Clusters
+# MAGIC 
+# MAGIC Clusters with **high memory usage or swap activity** are memory-constrained. Recommendations:
+# MAGIC - **Increase memory per node** - Use memory-optimized VMs (E-series)
+# MAGIC - **Add more workers** - Distribute memory pressure
+# MAGIC - **Optimize queries** - Reduce shuffles, use broadcast joins for small tables
+
+# COMMAND ----------
+
+# High Memory Utilization Clusters
+try:
+    high_memory_query = f"""
+    WITH cluster_memory_stats AS (
+        SELECT 
+            nt.cluster_id,
+            ROUND(AVG(nt.memory_used_percent), 2) AS avg_memory_percent,
+            ROUND(MAX(nt.memory_used_percent), 2) AS max_memory_percent,
+            ROUND(AVG(nt.swap_used_percent), 2) AS avg_swap_percent,
+            ROUND(MAX(nt.swap_used_percent), 2) AS max_swap_percent
+        FROM system.compute.node_timeline nt
+        WHERE nt.start_time >= date_sub(current_date(), {lookback_days})
+            AND nt.driver = false
+        GROUP BY nt.cluster_id
+        HAVING AVG(nt.memory_used_percent) >= 70 OR AVG(nt.swap_used_percent) >= 5
+    ),
+    cluster_costs AS (
+        SELECT 
+            u.usage_metadata.cluster_id,
+            ROUND(SUM(u.usage_quantity), 2) AS total_dbus,
+            ROUND(SUM(u.usage_quantity * COALESCE(lp.pricing.default, 0)), 2) AS total_cost_usd
+        FROM system.billing.usage u
+        LEFT JOIN system.billing.list_prices lp 
+            ON u.sku_name = lp.sku_name
+            AND u.usage_start_time >= lp.price_start_time
+            AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
+        WHERE u.usage_start_time >= date_sub(current_date(), {lookback_days})
+            AND u.usage_metadata.cluster_id IS NOT NULL
+        GROUP BY u.usage_metadata.cluster_id
+    )
+    SELECT 
+        c.account_id,
+        c.workspace_id,
+        c.cluster_id,
+        c.cluster_name,
+        c.owned_by AS owner,
+        c.dbr_version,
+        mem.avg_memory_percent,
+        mem.max_memory_percent,
+        mem.avg_swap_percent,
+        mem.max_swap_percent,
+        c.driver_node_type,
+        c.worker_node_type,
+        COALESCE(cc.total_dbus, 0) AS total_dbus,
+        COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
+        CASE 
+            WHEN mem.avg_swap_percent >= 10 THEN '🔴 CRITICAL - Swapping heavily, increase memory immediately'
+            WHEN mem.avg_swap_percent >= 5 THEN '🟠 WARNING - Swap activity detected, increase memory'
+            WHEN mem.avg_memory_percent >= 90 THEN '🔴 HIGH MEMORY - Risk of OOM, use larger nodes or add workers'
+            WHEN mem.avg_memory_percent >= 80 THEN '🟠 ELEVATED MEMORY - Consider memory-optimized VMs (E-series)'
+            ELSE '🟡 MODERATE - Monitor for memory pressure'
+        END AS recommendation
+    FROM system.compute.clusters c
+    JOIN cluster_memory_stats mem ON c.cluster_id = mem.cluster_id
+    LEFT JOIN cluster_costs cc ON c.cluster_id = cc.cluster_id
+    WHERE c.delete_time IS NULL
+        AND c.change_time >= date_sub(current_date(), {lookback_days})
+        AND {workspace_clause}
+    ORDER BY mem.avg_swap_percent DESC, mem.avg_memory_percent DESC, cc.total_cost_usd DESC NULLS LAST
+    """
+    display(spark.sql(high_memory_query))
+except Exception as e:
+    print(f"⚠️ Could not query memory utilization data: {e}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 📊 Resource Utilization Summary
+# MAGIC 
+# MAGIC Overview of resource bottlenecks across all non-Photon clusters:
+# MAGIC - **CPU-bound** → Enable Photon or add more cores
+# MAGIC - **I/O-bound** → Enable Delta Cache, optimize data layout
+# MAGIC - **Memory-bound** → Increase memory, use E-series VMs
+
+# COMMAND ----------
+
+# Resource Utilization Summary
+try:
+    resource_summary_query = f"""
+    WITH cluster_stats AS (
+        SELECT 
+            nt.cluster_id,
+            AVG(nt.cpu_user_percent + nt.cpu_system_percent) AS avg_cpu_percent,
+            AVG(nt.cpu_wait_percent) AS avg_io_wait_percent,
+            AVG(nt.memory_used_percent) AS avg_memory_percent,
+            AVG(nt.swap_used_percent) AS avg_swap_percent
+        FROM system.compute.node_timeline nt
+        WHERE nt.start_time >= date_sub(current_date(), {lookback_days})
+            AND nt.driver = false
+        GROUP BY nt.cluster_id
+    ),
+    cluster_costs AS (
+        SELECT 
+            u.usage_metadata.cluster_id,
+            SUM(u.usage_quantity * COALESCE(lp.pricing.default, 0)) AS total_cost_usd
+        FROM system.billing.usage u
+        LEFT JOIN system.billing.list_prices lp 
+            ON u.sku_name = lp.sku_name
+            AND u.usage_start_time >= lp.price_start_time
+            AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
+        WHERE u.usage_start_time >= date_sub(current_date(), {lookback_days})
+            AND u.usage_metadata.cluster_id IS NOT NULL
+        GROUP BY u.usage_metadata.cluster_id
+    ),
+    categorized AS (
+        SELECT 
+            c.cluster_id,
+            cs.avg_cpu_percent,
+            cs.avg_io_wait_percent,
+            cs.avg_memory_percent,
+            cs.avg_swap_percent,
+            cc.total_cost_usd,
+            CASE 
+                WHEN cs.avg_swap_percent >= 5 THEN 'Memory-bound (Swapping)'
+                WHEN cs.avg_memory_percent >= 80 THEN 'Memory-bound'
+                WHEN cs.avg_io_wait_percent >= 20 THEN 'I/O-bound'
+                WHEN cs.avg_cpu_percent >= 50 THEN 'CPU-bound'
+                ELSE 'Balanced/Underutilized'
+            END AS bottleneck_type
+        FROM system.compute.clusters c
+        JOIN cluster_stats cs ON c.cluster_id = cs.cluster_id
+        LEFT JOIN cluster_costs cc ON c.cluster_id = cc.cluster_id
+        WHERE c.delete_time IS NULL
+            AND c.change_time >= date_sub(current_date(), {lookback_days})
+            AND {workspace_clause}
+    )
+    SELECT 
+        bottleneck_type,
+        CASE 
+            WHEN bottleneck_type = 'CPU-bound' THEN '⚡ Enable Photon or increase CPU cores'
+            WHEN bottleneck_type = 'I/O-bound' THEN '💾 Enable Delta Cache, optimize data layout'
+            WHEN bottleneck_type LIKE 'Memory%' THEN '🧠 Use larger memory nodes (E-series) or add workers'
+            ELSE '✅ No immediate action needed'
+        END AS recommendation,
+        COUNT(*) AS cluster_count,
+        ROUND(SUM(COALESCE(total_cost_usd, 0)), 2) AS total_cost_usd,
+        ROUND(SUM(COALESCE(total_cost_usd, 0)) * 100.0 / NULLIF(SUM(SUM(COALESCE(total_cost_usd, 0))) OVER (), 0), 2) AS pct_of_total_cost
+    FROM categorized
+    GROUP BY bottleneck_type
+    ORDER BY total_cost_usd DESC
+    """
+    display(spark.sql(resource_summary_query))
+except Exception as e:
+    print(f"⚠️ Could not query resource summary: {e}")
 
 # COMMAND ----------
 
