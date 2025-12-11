@@ -25,9 +25,9 @@ This toolkit consists of **two notebooks**:
 | Analysis Area | What We Check | Recommendation |
 |---------------|---------------|----------------|
 | **Photon Adoption** | Clusters not using Photon | Enable Photon for SQL/DataFrame workloads |
-| **CPU Utilization** | High CPU usage on worker nodes | Enable Photon OR increase CPU cores |
-| **I/O Wait** | High I/O wait percentage | Enable Delta Cache, optimize data layout |
-| **Memory Pressure** | High memory usage / swapping | Use memory-optimized VMs (E-series), add workers |
+| **CPU Utilization** | High CPU usage on worker nodes | Enable Photon, compute-optimized (F-series), larger nodes, or more workers |
+| **I/O Wait** | High I/O wait percentage | Enable Delta Cache, Liquid Clustering, storage-optimized (L-series) |
+| **Memory Pressure** | High memory usage / swapping | Memory-optimized (E-series), larger nodes, or more workers |
 
 > 💡 **Photon Note**: For AI/ML workloads, Photon improves performance for Spark SQL, DataFrames, feature engineering, GraphFrames, and xgboost4j. See [Photon documentation](https://docs.databricks.com/aws/en/compute/photon#photon-features).
 
@@ -118,10 +118,10 @@ Different Azure VM series have different recommended minimum generations:
 
 | Bottleneck | Metric | Threshold | Action |
 |------------|--------|-----------|--------|
-| **CPU-bound** | `avg_cpu_percent` | >=50% | Enable Photon OR increase CPU cores |
-| **I/O-bound** | `cpu_wait_percent` | >=10% | Enable Delta Cache, Z-ordering, partition pruning |
-| **Memory-bound** | `memory_used_percent` | >=70% | Use larger nodes (E-series) or add workers |
-| **Swapping** | `swap_used_percent` | >=5% | CRITICAL - Increase memory immediately |
+| **CPU-bound** | `avg_cpu_percent` | >=50% | Enable Photon, compute-optimized (F-series), larger nodes, or more workers |
+| **I/O-bound** | `cpu_wait_percent` | >=10% | Enable Delta Cache, Liquid Clustering, storage-optimized (L-series) |
+| **Memory-bound** | `memory_used_percent` | >=70% | Memory-optimized (E-series), larger nodes, or more workers |
+| **Swapping** | `swap_used_percent` | >=5% | Memory-optimized (E-series), larger nodes, or more workers |
 
 ## 📊 Output
 
@@ -165,6 +165,7 @@ Each analysis section produces:
 - [Compute System Tables Documentation](https://learn.microsoft.com/en-us/azure/databricks/admin/system-tables/compute)
 - [Photon Runtime](https://docs.databricks.com/aws/en/compute/photon#photon-features)
 - [Delta Cache](https://docs.databricks.com/delta/optimizations/delta-cache.html)
+- [Liquid Clustering](https://docs.databricks.com/en/delta/clustering.html) (replaces Z-ordering)
 - [Cluster Policies Best Practices](https://docs.databricks.com/clusters/policy-best-practices.html)
 - [Azure VM Pricing](https://azure.microsoft.com/pricing/details/virtual-machines/)
 - [Databricks Runtime Release Notes](https://docs.databricks.com/release-notes/runtime/index.html)

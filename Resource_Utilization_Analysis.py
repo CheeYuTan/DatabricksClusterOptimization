@@ -227,12 +227,12 @@ try:
         COALESCE(cc.total_dbus, 0) AS total_dbus,
         COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
         CASE 
-            WHEN LOWER(c.dbr_version) LIKE '%ml%' AND cpu.avg_cpu_percent >= 50 THEN '🟠 ML Runtime - Photon helps Spark SQL/DataFrames, feature engineering'
+            WHEN LOWER(c.dbr_version) LIKE '%ml%' AND cpu.avg_cpu_percent >= 50 THEN '🟠 ML Runtime - Photon helps Spark SQL/feature eng; or use compute-optimized (F-series)'
             WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '🟡 ML Runtime - Evaluate if using Spark SQL/DataFrames'
-            WHEN cpu.avg_cpu_percent >= 70 THEN '🔴 HIGH PRIORITY - Enable Photon OR increase CPU cores'
-            WHEN cpu.avg_cpu_percent >= 50 THEN '🟠 GOOD CANDIDATE - Enable Photon OR add workers'
+            WHEN cpu.avg_cpu_percent >= 70 THEN '🔴 HIGH - Enable Photon, compute-optimized (F-series), larger nodes, or more workers'
+            WHEN cpu.avg_cpu_percent >= 50 THEN '🟠 GOOD - Enable Photon, compute-optimized (F-series), larger nodes, or more workers'
             WHEN cpu.avg_cpu_percent >= 30 THEN '🟡 MODERATE - Consider Photon for SQL workloads'
-            ELSE '🟢 LOW PRIORITY - Not CPU-bound (I/O, memory, or idle)'
+            ELSE '🟢 LOW - Not CPU-bound (I/O, memory, or idle)'
         END AS recommendation
     FROM system.compute.clusters c
     JOIN cluster_cpu_stats cpu ON c.cluster_id = cpu.cluster_id
@@ -341,8 +341,9 @@ except Exception as e:
 # MAGIC 
 # MAGIC Clusters with **high I/O wait** are spending time waiting for storage. Recommendations:
 # MAGIC - **Enable Delta Cache** - caches remote data on local SSD
-# MAGIC - **Use faster storage tier** - Premium storage, or move data closer
-# MAGIC - **Optimize data layout** - Z-ordering, compaction, partition pruning
+# MAGIC - **Use Liquid Clustering** - modern replacement for Z-ordering (Z-ordering is deprecated)
+# MAGIC - **Optimize data layout** - compaction, partition pruning
+# MAGIC - **Use storage-optimized nodes** - L-series VMs with local NVMe
 
 # COMMAND ----------
 
@@ -390,9 +391,9 @@ try:
         COALESCE(cc.total_dbus, 0) AS total_dbus,
         COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
         CASE 
-            WHEN io.avg_io_wait_percent >= 30 THEN '🔴 HIGH I/O WAIT - Enable Delta Cache + optimize data layout'
-            WHEN io.avg_io_wait_percent >= 20 THEN '🟠 MEDIUM I/O WAIT - Consider Delta Cache'
-            ELSE '🟡 MODERATE I/O WAIT - Review data access patterns'
+            WHEN io.avg_io_wait_percent >= 30 THEN '🔴 HIGH I/O WAIT - Enable Delta Cache + Liquid Clustering'
+            WHEN io.avg_io_wait_percent >= 20 THEN '🟠 MEDIUM I/O WAIT - Consider Delta Cache, storage-optimized nodes'
+            ELSE '🟡 MODERATE I/O WAIT - Review data layout, consider Liquid Clustering'
         END AS recommendation
     FROM system.compute.clusters c
     JOIN cluster_io_stats io ON c.cluster_id = io.cluster_id
@@ -413,8 +414,9 @@ except Exception as e:
 # MAGIC ### 🧠 High Memory Utilization Clusters
 # MAGIC 
 # MAGIC Clusters with **high memory usage or swap activity** are memory-constrained. Recommendations:
-# MAGIC - **Increase memory per node** - Use memory-optimized VMs (E-series)
-# MAGIC - **Add more workers** - Distribute memory pressure
+# MAGIC - **Use memory-optimized nodes** - E-series VMs
+# MAGIC - **Use larger nodes** - More memory per node
+# MAGIC - **Add more workers** - Distribute memory pressure across cluster
 # MAGIC - **Optimize queries** - Reduce shuffles, use broadcast joins for small tables
 
 # COMMAND ----------
@@ -465,10 +467,10 @@ try:
         COALESCE(cc.total_dbus, 0) AS total_dbus,
         COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
         CASE 
-            WHEN mem.avg_swap_percent >= 10 THEN '🔴 CRITICAL - Swapping heavily, increase memory immediately'
-            WHEN mem.avg_swap_percent >= 5 THEN '🟠 WARNING - Swap activity detected, increase memory'
-            WHEN mem.avg_memory_percent >= 90 THEN '🔴 HIGH MEMORY - Risk of OOM, use larger nodes or add workers'
-            WHEN mem.avg_memory_percent >= 80 THEN '🟠 ELEVATED MEMORY - Consider memory-optimized VMs (E-series)'
+            WHEN mem.avg_swap_percent >= 10 THEN '🔴 CRITICAL - Use memory-optimized (E-series), larger nodes, or more workers'
+            WHEN mem.avg_swap_percent >= 5 THEN '🟠 SWAPPING - Use memory-optimized (E-series), larger nodes, or more workers'
+            WHEN mem.avg_memory_percent >= 90 THEN '🔴 HIGH MEMORY - Use memory-optimized (E-series), larger nodes, or more workers'
+            WHEN mem.avg_memory_percent >= 80 THEN '🟠 ELEVATED - Consider memory-optimized (E-series), larger nodes, or more workers'
             ELSE '🟡 MODERATE - Monitor for memory pressure'
         END AS recommendation
     FROM system.compute.clusters c
@@ -490,9 +492,9 @@ except Exception as e:
 # MAGIC ### 📊 Resource Utilization Summary
 # MAGIC 
 # MAGIC Overview of resource bottlenecks across all clusters:
-# MAGIC - **CPU-bound** → Enable Photon or add more cores
-# MAGIC - **I/O-bound** → Enable Delta Cache, optimize data layout
-# MAGIC - **Memory-bound** → Increase memory, use E-series VMs
+# MAGIC - **CPU-bound** → Enable Photon, compute-optimized (F-series), larger nodes, or more workers
+# MAGIC - **I/O-bound** → Enable Delta Cache, Liquid Clustering, storage-optimized (L-series)
+# MAGIC - **Memory-bound** → Memory-optimized (E-series), larger nodes, or more workers
 
 # COMMAND ----------
 
@@ -549,9 +551,9 @@ try:
     SELECT 
         bottleneck_type,
         CASE 
-            WHEN bottleneck_type = 'CPU-bound' THEN '⚡ Enable Photon or increase CPU cores'
-            WHEN bottleneck_type = 'I/O-bound' THEN '💾 Enable Delta Cache, optimize data layout'
-            WHEN bottleneck_type LIKE 'Memory%' THEN '🧠 Use larger memory nodes (E-series) or add workers'
+            WHEN bottleneck_type = 'CPU-bound' THEN '⚡ Enable Photon, compute-optimized (F-series), larger nodes, or more workers'
+            WHEN bottleneck_type = 'I/O-bound' THEN '💾 Enable Delta Cache, Liquid Clustering, storage-optimized (L-series)'
+            WHEN bottleneck_type LIKE 'Memory%' THEN '🧠 Memory-optimized (E-series), larger nodes, or more workers'
             ELSE '✅ No immediate action needed'
         END AS recommendation,
         COUNT(*) AS cluster_count,
