@@ -1,26 +1,39 @@
 # 🔍 Databricks Cluster Optimization Analysis
 
-A Databricks notebook for identifying cost optimization opportunities in your clusters by analyzing configurations against best practices.
+A set of Databricks notebooks for identifying cost optimization opportunities and performance bottlenecks in your clusters.
 
 > ⚠️ **Cloud Compatibility Note**:
 > - **DBR Version Analysis** - ✅ Works on Azure, AWS, and GCP
 > - **Driver Sizing Analysis** - ✅ Works on Azure, AWS, and GCP  
 > - **VM Generation Analysis** - ⚠️ **Azure only** (uses Azure-specific VM naming conventions like `Standard_D4ds_v5`). AWS/GCP support may be added in future versions.
+> - **Resource Utilization Analysis** - ✅ Works on Azure, AWS, and GCP (requires `system.compute.node_timeline`)
 
 ## 📋 Overview
 
-This tool analyzes your Databricks clusters and identifies:
+This toolkit consists of **two notebooks**:
+
+### Notebook 1: Cluster Optimization Analysis
 
 | Analysis Area | What We Check | Why It Matters |
 |---------------|---------------|----------------|
 | **DBR Versions** | Clusters on non-LTS or soon-to-expire LTS versions | Older runtimes miss performance improvements; out-of-support versions don't receive security patches |
 | **VM Generations** | Clusters using older Azure VM generations (v3, v4) | Newer generations offer better price/performance |
 | **Driver Sizing** | Oversized driver nodes (high vCPU/memory) | Drivers often don't need large VMs; right-sizing reduces costs |
-| **Photon Adoption** | Clusters not using Photon runtime | Photon provides 2-8x performance for SQL/DataFrame workloads |
+
+### Notebook 2: Resource Utilization & Photon Analysis
+
+| Analysis Area | What We Check | Recommendation |
+|---------------|---------------|----------------|
+| **Photon Adoption** | Clusters not using Photon | Enable Photon for SQL/DataFrame workloads |
+| **CPU Utilization** | High CPU usage on worker nodes | Enable Photon OR increase CPU cores |
+| **I/O Wait** | High I/O wait percentage | Enable Delta Cache, optimize data layout |
+| **Memory Pressure** | High memory usage / swapping | Use memory-optimized VMs (E-series), add workers |
+
+> 💡 **Photon Note**: For AI/ML workloads, Photon improves performance for Spark SQL, DataFrames, feature engineering, GraphFrames, and xgboost4j. See [Photon documentation](https://docs.databricks.com/aws/en/compute/photon#photon-features).
 
 ## 🚀 Quick Start
 
-1. Import the notebook into your Databricks workspace
+1. Import both notebooks into your Databricks workspace
 2. Attach to a cluster with Unity Catalog access
 3. Configure the widgets at the top
 4. Run all cells
@@ -30,12 +43,15 @@ This tool analyzes your Databricks clusters and identifies:
 
 ### Required System Tables Access
 
-This notebook queries Unity Catalog system tables:
+These notebooks query Unity Catalog system tables:
 
-- `system.compute.clusters` - Cluster configurations
-- `system.compute.node_types` - Available node types with hardware info
-- `system.billing.usage` - Usage/billing data
-- `system.billing.list_prices` - List prices for cost calculation
+| Table | Used By |
+|-------|---------|
+| `system.compute.clusters` | Both notebooks |
+| `system.compute.node_types` | Notebook 1 |
+| `system.compute.node_timeline` | Notebook 2 (CPU, I/O, Memory metrics) |
+| `system.billing.usage` | Both notebooks |
+| `system.billing.list_prices` | Both notebooks |
 
 ### Granting Access to System Tables
 
@@ -46,6 +62,7 @@ This notebook queries Unity Catalog system tables:
 GRANT USE SCHEMA ON system.compute TO `user@example.com`;
 GRANT SELECT ON system.compute.clusters TO `user@example.com`;
 GRANT SELECT ON system.compute.node_types TO `user@example.com`;
+GRANT SELECT ON system.compute.node_timeline TO `user@example.com`;
 
 -- Grant access to billing system tables
 GRANT USE SCHEMA ON system.billing TO `user@example.com`;
@@ -59,6 +76,7 @@ Or grant to a group for easier management:
 GRANT USE SCHEMA ON system.compute TO `data-analysts`;
 GRANT SELECT ON system.compute.clusters TO `data-analysts`;
 GRANT SELECT ON system.compute.node_types TO `data-analysts`;
+GRANT SELECT ON system.compute.node_timeline TO `data-analysts`;
 GRANT USE SCHEMA ON system.billing TO `data-analysts`;
 GRANT SELECT ON system.billing.usage TO `data-analysts`;
 GRANT SELECT ON system.billing.list_prices TO `data-analysts`;
@@ -96,6 +114,15 @@ Different Azure VM series have different recommended minimum generations:
 | M | Large Memory | v2 |
 | N | GPU | v1 |
 
+## 📊 Resource Utilization Thresholds
+
+| Bottleneck | Metric | Threshold | Action |
+|------------|--------|-----------|--------|
+| **CPU-bound** | `avg_cpu_percent` | >=50% | Enable Photon OR increase CPU cores |
+| **I/O-bound** | `cpu_wait_percent` | >=10% | Enable Delta Cache, Z-ordering, partition pruning |
+| **Memory-bound** | `memory_used_percent` | >=70% | Use larger nodes (E-series) or add workers |
+| **Swapping** | `swap_used_percent` | >=5% | CRITICAL - Increase memory immediately |
+
 ## 📊 Output
 
 ### Tables Generated
@@ -121,19 +148,23 @@ Each analysis section produces:
 |------|---------|
 | 🔴 | **Critical** - Immediate action required |
 | 🟠 | **Warning** - Plan action soon |
+| 🟡 | **Moderate** - Evaluate and consider |
 | 🟢 | **Good** - Meets best practices |
 | ⛔ | **Expired** - Already past end-of-support |
 
 ## 📁 Files
 
 ```
-├── Cluster_Optimization_Analysis.py    # Main notebook
+├── Cluster_Optimization_Analysis.py    # Notebook 1: DBR, VM Gen, Driver Sizing
+├── Resource_Utilization_Analysis.py    # Notebook 2: Photon, CPU, I/O, Memory
 └── README.md                           # This file
 ```
 
 ## 🔗 References
 
 - [Compute System Tables Documentation](https://learn.microsoft.com/en-us/azure/databricks/admin/system-tables/compute)
+- [Photon Runtime](https://docs.databricks.com/aws/en/compute/photon#photon-features)
+- [Delta Cache](https://docs.databricks.com/delta/optimizations/delta-cache.html)
 - [Cluster Policies Best Practices](https://docs.databricks.com/clusters/policy-best-practices.html)
 - [Azure VM Pricing](https://azure.microsoft.com/pricing/details/virtual-machines/)
 - [Databricks Runtime Release Notes](https://docs.databricks.com/release-notes/runtime/index.html)
@@ -143,6 +174,7 @@ Each analysis section produces:
 | Date | Author | Changes |
 |------|--------|---------|
 | 2025-12-10 | Steven Tan | Initial release |
+| 2025-12-11 | Steven Tan | Split into two notebooks, added resource utilization analysis |
 
 ## 👤 Author
 
