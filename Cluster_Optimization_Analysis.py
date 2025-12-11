@@ -13,6 +13,7 @@
 # MAGIC | **DBR Versions** | Clusters on non-LTS or soon-to-expire LTS versions | Older runtimes miss performance improvements; out-of-support versions don't receive security patches |
 # MAGIC | **VM Generations** | Clusters using older Azure VM generations (v3, v4) | Newer generations offer better price/performance |
 # MAGIC | **Driver Sizing** | Oversized driver nodes (high vCPU/memory) | Drivers often don't need large VMs; right-sizing reduces costs |
+# MAGIC | **Photon Adoption** | Clusters not using Photon runtime | Photon provides 2-8x performance for SQL/DataFrame workloads |
 # MAGIC 
 # MAGIC ---
 # MAGIC 
@@ -917,6 +918,203 @@ if summary_data:
     display(summary_df)
 else:
     print("Unable to generate summary - please check system table access permissions")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ---
+# MAGIC ## 5️⃣ Photon Adoption Analysis
+# MAGIC 
+# MAGIC **What is Photon?** Photon is Databricks' vectorized query engine that accelerates Spark SQL and DataFrame workloads.
+# MAGIC 
+# MAGIC **When does Photon help?**
+# MAGIC - ✅ SQL/DataFrame heavy workloads (aggregations, joins, filters)
+# MAGIC - ✅ ETL/ELT transformations
+# MAGIC - ✅ CPU-bound operations
+# MAGIC - ❌ Python UDFs, pandas operations
+# MAGIC - ❌ ML training with sklearn, torch, etc.
+# MAGIC 
+# MAGIC **Trade-off**: Photon has a higher DBU rate but typically provides 2-8x performance improvement for compatible workloads.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 📊 Photon Adoption Overview
+# MAGIC 
+# MAGIC This shows the overall Photon adoption rate across your clusters, with associated cost data.
+
+# COMMAND ----------
+
+# Photon Adoption Overview
+photon_adoption_query = f"""
+WITH cluster_costs AS (
+    SELECT 
+        u.usage_metadata.cluster_id,
+        ROUND(SUM(u.usage_quantity), 2) AS total_dbus,
+        ROUND(SUM(u.usage_quantity * COALESCE(lp.pricing.default, 0)), 2) AS total_cost_usd
+    FROM system.billing.usage u
+    LEFT JOIN system.billing.list_prices lp 
+        ON u.sku_name = lp.sku_name
+        AND u.usage_start_time >= lp.price_start_time
+        AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
+    WHERE u.usage_start_time >= date_sub(current_date(), {lookback_days})
+        AND u.usage_metadata.cluster_id IS NOT NULL
+    GROUP BY u.usage_metadata.cluster_id
+)
+SELECT 
+    CASE 
+        WHEN LOWER(c.dbr_version) LIKE '%photon%' THEN '⚡ Photon Enabled'
+        ELSE '🔹 Standard (No Photon)'
+    END AS photon_status,
+    COUNT(DISTINCT c.cluster_id) AS cluster_count,
+    ROUND(COUNT(DISTINCT c.cluster_id) * 100.0 / SUM(COUNT(DISTINCT c.cluster_id)) OVER (), 2) AS pct_of_clusters,
+    ROUND(SUM(COALESCE(cc.total_dbus, 0)), 2) AS total_dbus,
+    ROUND(SUM(COALESCE(cc.total_cost_usd, 0)), 2) AS total_cost_usd,
+    ROUND(SUM(COALESCE(cc.total_cost_usd, 0)) * 100.0 / NULLIF(SUM(SUM(COALESCE(cc.total_cost_usd, 0))) OVER (), 0), 2) AS pct_of_total_cost
+FROM system.compute.clusters c
+LEFT JOIN cluster_costs cc ON c.cluster_id = cc.cluster_id
+WHERE c.delete_time IS NULL
+    AND c.change_time >= date_sub(current_date(), {lookback_days})
+    AND {workspace_clause}
+GROUP BY 
+    CASE 
+        WHEN LOWER(c.dbr_version) LIKE '%photon%' THEN '⚡ Photon Enabled'
+        ELSE '🔹 Standard (No Photon)'
+    END
+ORDER BY cluster_count DESC
+"""
+display(spark.sql(photon_adoption_query))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 🎯 Photon Candidates
+# MAGIC 
+# MAGIC These clusters are **good candidates for Photon** based on their characteristics:
+# MAGIC - Not using ML runtime (Photon doesn't accelerate ML libraries)
+# MAGIC - Not already using Photon
+# MAGIC - Have significant DBU consumption (worth the upgrade effort)
+# MAGIC 
+# MAGIC **Note**: For best results, also consider cluster utilization metrics (high CPU usage indicates compute-bound workloads that benefit most from Photon).
+
+# COMMAND ----------
+
+# Photon Candidates - clusters that could benefit from Photon
+photon_candidates_query = f"""
+WITH cluster_costs AS (
+    SELECT 
+        u.usage_metadata.cluster_id,
+        ROUND(SUM(u.usage_quantity), 2) AS total_dbus,
+        ROUND(SUM(u.usage_quantity * COALESCE(lp.pricing.default, 0)), 2) AS total_cost_usd
+    FROM system.billing.usage u
+    LEFT JOIN system.billing.list_prices lp 
+        ON u.sku_name = lp.sku_name
+        AND u.usage_start_time >= lp.price_start_time
+        AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
+    WHERE u.usage_start_time >= date_sub(current_date(), {lookback_days})
+        AND u.usage_metadata.cluster_id IS NOT NULL
+    GROUP BY u.usage_metadata.cluster_id
+)
+SELECT 
+    c.account_id,
+    c.workspace_id,
+    c.cluster_id,
+    c.cluster_name,
+    c.owned_by AS owner,
+    c.dbr_version,
+    CASE 
+        WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '🤖 ML Runtime'
+        WHEN LOWER(c.dbr_version) LIKE '%gpu%' THEN '🎮 GPU Runtime'
+        ELSE '📊 Standard Runtime'
+    END AS runtime_type,
+    c.cluster_source,
+    c.driver_node_type,
+    c.worker_node_type,
+    COALESCE(cc.total_dbus, 0) AS total_dbus,
+    COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
+    CASE 
+        WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '⚠️ ML workloads may not benefit'
+        WHEN LOWER(c.dbr_version) LIKE '%gpu%' THEN '⚠️ GPU workloads - evaluate carefully'
+        WHEN COALESCE(cc.total_cost_usd, 0) > 1000 THEN '🔴 High Priority - High spend cluster'
+        WHEN COALESCE(cc.total_cost_usd, 0) > 100 THEN '🟠 Medium Priority'
+        ELSE '🟢 Low Priority - Low spend'
+    END AS photon_recommendation
+FROM system.compute.clusters c
+LEFT JOIN cluster_costs cc ON c.cluster_id = cc.cluster_id
+WHERE c.delete_time IS NULL
+    AND c.change_time >= date_sub(current_date(), {lookback_days})
+    AND {workspace_clause}
+    AND LOWER(c.dbr_version) NOT LIKE '%photon%'  -- Not already using Photon
+ORDER BY 
+    CASE 
+        WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN 3
+        WHEN LOWER(c.dbr_version) LIKE '%gpu%' THEN 2
+        ELSE 1
+    END,
+    cc.total_cost_usd DESC NULLS LAST
+"""
+display(spark.sql(photon_candidates_query))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 📈 Photon Candidates Summary by Runtime Type
+# MAGIC 
+# MAGIC Summary of non-Photon clusters grouped by runtime type, showing potential impact.
+
+# COMMAND ----------
+
+# Photon Candidates Summary
+photon_summary_query = f"""
+WITH cluster_costs AS (
+    SELECT 
+        u.usage_metadata.cluster_id,
+        SUM(u.usage_quantity) AS total_dbus,
+        SUM(u.usage_quantity * COALESCE(lp.pricing.default, 0)) AS total_cost_usd
+    FROM system.billing.usage u
+    LEFT JOIN system.billing.list_prices lp 
+        ON u.sku_name = lp.sku_name
+        AND u.usage_start_time >= lp.price_start_time
+        AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
+    WHERE u.usage_start_time >= date_sub(current_date(), {lookback_days})
+        AND u.usage_metadata.cluster_id IS NOT NULL
+    GROUP BY u.usage_metadata.cluster_id
+)
+SELECT 
+    CASE 
+        WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '🤖 ML Runtime'
+        WHEN LOWER(c.dbr_version) LIKE '%gpu%' THEN '🎮 GPU Runtime'
+        ELSE '📊 Standard Runtime'
+    END AS runtime_type,
+    CASE 
+        WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '⚠️ Evaluate - ML libraries not accelerated'
+        WHEN LOWER(c.dbr_version) LIKE '%gpu%' THEN '⚠️ Evaluate - GPU workloads vary'
+        ELSE '✅ Good Candidate for Photon'
+    END AS photon_suitability,
+    COUNT(DISTINCT c.cluster_id) AS cluster_count,
+    ROUND(SUM(COALESCE(cc.total_dbus, 0)), 2) AS total_dbus,
+    ROUND(SUM(COALESCE(cc.total_cost_usd, 0)), 2) AS total_cost_usd,
+    ROUND(SUM(COALESCE(cc.total_cost_usd, 0)) * 100.0 / NULLIF(SUM(SUM(COALESCE(cc.total_cost_usd, 0))) OVER (), 0), 2) AS pct_of_non_photon_cost
+FROM system.compute.clusters c
+LEFT JOIN cluster_costs cc ON c.cluster_id = cc.cluster_id
+WHERE c.delete_time IS NULL
+    AND c.change_time >= date_sub(current_date(), {lookback_days})
+    AND {workspace_clause}
+    AND LOWER(c.dbr_version) NOT LIKE '%photon%'
+GROUP BY 
+    CASE 
+        WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '🤖 ML Runtime'
+        WHEN LOWER(c.dbr_version) LIKE '%gpu%' THEN '🎮 GPU Runtime'
+        ELSE '📊 Standard Runtime'
+    END,
+    CASE 
+        WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '⚠️ Evaluate - ML libraries not accelerated'
+        WHEN LOWER(c.dbr_version) LIKE '%gpu%' THEN '⚠️ Evaluate - GPU workloads vary'
+        ELSE '✅ Good Candidate for Photon'
+    END
+ORDER BY total_cost_usd DESC
+"""
+display(spark.sql(photon_summary_query))
 
 # COMMAND ----------
 

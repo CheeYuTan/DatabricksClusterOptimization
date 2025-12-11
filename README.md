@@ -16,6 +16,7 @@ This tool analyzes your Databricks clusters and identifies:
 | **DBR Versions** | Clusters on non-LTS or soon-to-expire LTS versions | Older runtimes miss performance improvements; out-of-support versions don't receive security patches |
 | **VM Generations** | Clusters using older Azure VM generations (v3, v4) | Newer generations offer better price/performance |
 | **Driver Sizing** | Oversized driver nodes (high vCPU/memory) | Drivers often don't need large VMs; right-sizing reduces costs |
+| **Photon Adoption** | Clusters not using Photon runtime | Photon provides 2-8x performance for SQL/DataFrame workloads |
 
 ## 🚀 Quick Start
 
