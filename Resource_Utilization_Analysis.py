@@ -22,7 +22,7 @@
 # MAGIC |------------|--------|---------|--------|
 # MAGIC | **CPU-bound** | `avg_cpu_percent` | >=70% | Enable Photon, compute-optimized (F-series), larger nodes, more workers |
 # MAGIC | **I/O-bound** | `cpu_wait_percent` | >=10% | Enable Delta Cache, Liquid Clustering for effective file pruning, storage-optimized (L-series) |
-# MAGIC | **Memory-bound** | `memory_used_percent` OR `swap_used_percent` | >=80% OR >=1% | Memory-optimized (E-series), larger nodes, more workers |
+# MAGIC | **Memory-bound** | `mem_used_percent` OR `mem_swap_percent` | >=80% OR >=1% | Memory-optimized (E-series), larger nodes, more workers |
 # MAGIC 
 # MAGIC ---
 # MAGIC 
@@ -182,9 +182,7 @@ try:
         AND c.change_time >= date_sub(current_date(), {lookback_days})
         AND {workspace_clause}
         AND cpu.avg_cpu_percent >= {cpu_threshold}  -- Only show clusters above threshold
-    ORDER BY 
-        cpu.avg_cpu_percent DESC,
-        cc.total_cost_usd DESC NULLS LAST
+    ORDER BY cc.total_cost_usd DESC NULLS LAST
     """
     display(spark.sql(high_cpu_photon_query))
 except Exception as e:
@@ -259,7 +257,7 @@ try:
     WHERE c.delete_time IS NULL
         AND c.change_time >= date_sub(current_date(), {lookback_days})
         AND {workspace_clause}
-    ORDER BY io.avg_io_wait_percent DESC, cc.total_cost_usd DESC NULLS LAST
+    ORDER BY cc.total_cost_usd DESC NULLS LAST
     """
     display(spark.sql(high_io_wait_query))
 except Exception as e:
@@ -285,15 +283,15 @@ try:
     WITH cluster_memory_stats AS (
         SELECT 
             nt.cluster_id,
-            ROUND(AVG(nt.memory_used_percent), 2) AS avg_memory_percent,
-            ROUND(MAX(nt.memory_used_percent), 2) AS max_memory_percent,
-            ROUND(AVG(nt.swap_used_percent), 2) AS avg_swap_percent,
-            ROUND(MAX(nt.swap_used_percent), 2) AS max_swap_percent
+            ROUND(AVG(nt.mem_used_percent), 2) AS avg_memory_percent,
+            ROUND(MAX(nt.mem_used_percent), 2) AS max_memory_percent,
+            ROUND(AVG(nt.mem_swap_percent), 2) AS avg_swap_percent,
+            ROUND(MAX(nt.mem_swap_percent), 2) AS max_swap_percent
         FROM system.compute.node_timeline nt
         WHERE nt.start_time >= date_sub(current_date(), {lookback_days})
             AND nt.driver = false
         GROUP BY nt.cluster_id
-        HAVING AVG(nt.memory_used_percent) >= {memory_threshold} OR AVG(nt.swap_used_percent) >= {swap_threshold}
+        HAVING AVG(nt.mem_used_percent) >= {memory_threshold} OR AVG(nt.mem_swap_percent) >= {swap_threshold}
     ),
     cluster_costs AS (
         SELECT 
@@ -335,7 +333,7 @@ try:
     WHERE c.delete_time IS NULL
         AND c.change_time >= date_sub(current_date(), {lookback_days})
         AND {workspace_clause}
-    ORDER BY mem.avg_swap_percent DESC, mem.avg_memory_percent DESC, cc.total_cost_usd DESC NULLS LAST
+    ORDER BY cc.total_cost_usd DESC NULLS LAST
     """
     display(spark.sql(high_memory_query))
 except Exception as e:
@@ -362,8 +360,8 @@ try:
             nt.cluster_id,
             AVG(nt.cpu_user_percent + nt.cpu_system_percent) AS avg_cpu_percent,
             AVG(nt.cpu_wait_percent) AS avg_io_wait_percent,
-            AVG(nt.memory_used_percent) AS avg_memory_percent,
-            AVG(nt.swap_used_percent) AS avg_swap_percent
+            AVG(nt.mem_used_percent) AS avg_memory_percent,
+            AVG(nt.mem_swap_percent) AS avg_swap_percent
         FROM system.compute.node_timeline nt
         WHERE nt.start_time >= date_sub(current_date(), {lookback_days})
             AND nt.driver = false
