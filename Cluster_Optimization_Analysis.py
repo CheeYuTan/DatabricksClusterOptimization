@@ -931,9 +931,9 @@ else:
 # MAGIC **`Resource_Utilization_Analysis`**
 # MAGIC 
 # MAGIC This notebook analyzes:
-# MAGIC - 🔥 High CPU clusters → Photon, F-series, larger nodes, more workers
+# MAGIC - 🔥 High CPU clusters → Photon, larger nodes, more workers
 # MAGIC - 💾 High I/O wait clusters → Delta Cache, Liquid Clustering
-# MAGIC - 🧠 Memory-constrained clusters → E-series, larger nodes, more workers
+# MAGIC - 🧠 Memory-constrained clusters → larger nodes, more workers
 
 # COMMAND ----------
 

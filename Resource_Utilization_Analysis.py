@@ -14,9 +14,9 @@
 # MAGIC 
 # MAGIC | Bottleneck | What We Check | Recommendation |
 # MAGIC |------------|---------------|----------------|
-# MAGIC | **CPU-bound** | High CPU usage on worker nodes | Enable Photon, compute-optimized (F-series), larger nodes, more workers |
-# MAGIC | **I/O-bound** | High I/O wait percentage | Enable Delta Cache, Liquid Clustering, storage-optimized (L-series) |
-# MAGIC | **Memory-bound** | High memory or swap usage | Memory-optimized (E-series), larger nodes, more workers |
+# MAGIC | **CPU-bound** | High CPU usage on worker nodes | Enable Photon, compute-optimized, larger nodes, more workers |
+# MAGIC | **I/O-bound** | High I/O wait percentage | Enable Delta Cache, Liquid Clustering, storage-optimized |
+# MAGIC | **Memory-bound** | High memory or swap usage | Memory-optimized , larger nodes, more workers |
 # MAGIC 
 # MAGIC ---
 # MAGIC 
@@ -24,9 +24,9 @@
 # MAGIC 
 # MAGIC | Bottleneck | Metric | Default | Action |
 # MAGIC |------------|--------|---------|--------|
-# MAGIC | **CPU-bound** | `avg_cpu_percent` | >=70% | Enable Photon, compute-optimized (F-series), larger nodes, more workers |
-# MAGIC | **I/O-bound** | `cpu_wait_percent` | >=10% | Enable Delta Cache, Liquid Clustering for effective file pruning, storage-optimized (L-series) |
-# MAGIC | **Memory-bound** | `mem_used_percent` OR `mem_swap_percent` | >=80% OR >=1% | Memory-optimized (E-series), larger nodes, more workers |
+# MAGIC | **CPU-bound** | `avg_cpu_percent` | >=70% | Enable Photon, compute-optimized, larger nodes, more workers |
+# MAGIC | **I/O-bound** | `cpu_wait_percent` | >=10% | Enable Delta Cache, Liquid Clustering for effective file pruning, storage-optimized |
+# MAGIC | **Memory-bound** | `mem_used_percent` OR `mem_swap_percent` | >=80% OR >=1% | Memory-optimized , larger nodes, more workers |
 # MAGIC 
 # MAGIC ---
 # MAGIC 
@@ -120,7 +120,7 @@ print(f"   • Memory-bound threshold: memory >= {memory_threshold}% OR swap >= 
 # MAGIC 
 # MAGIC Clusters with **high CPU utilization** are compute-bound and may benefit from:
 # MAGIC - **Enable Photon** - 2-8x performance for SQL/DataFrame workloads
-# MAGIC - **Compute-optimized nodes** - F-series VMs for higher clock speeds
+# MAGIC - **Compute-optimized nodes** - Higher clock speeds, more cores per node
 # MAGIC - **Larger nodes or more workers** - More CPU cores to distribute load
 # MAGIC 
 # MAGIC > **Note**: This query uses `system.compute.node_timeline`. If you don't have access, this section will show an error.
@@ -174,9 +174,9 @@ try:
         COALESCE(cc.total_dbus, 0) AS total_dbus,
         COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
         CASE 
-            WHEN LOWER(c.dbr_version) LIKE '%ml%' AND cpu.avg_cpu_percent >= {cpu_threshold} THEN '🟠 ML Runtime - Photon helps Spark SQL/feature eng; or F-series'
+            WHEN LOWER(c.dbr_version) LIKE '%ml%' AND cpu.avg_cpu_percent >= {cpu_threshold} THEN '🟠 ML Runtime - Photon helps Spark SQL/feature eng; or compute-optimized'
             WHEN LOWER(c.dbr_version) LIKE '%ml%' THEN '🟡 ML Runtime - Evaluate if using Spark SQL/DataFrames'
-            WHEN cpu.avg_cpu_percent >= {cpu_threshold} THEN '🔴 CPU-bound - Photon, F-series, larger nodes, more workers'
+            WHEN cpu.avg_cpu_percent >= {cpu_threshold} THEN '🔴 CPU-bound - Photon, larger nodes, more workers'
             ELSE '🟢 Below threshold - Not CPU-bound'
         END AS recommendation
     FROM system.compute.clusters c
@@ -202,7 +202,7 @@ except Exception as e:
 # MAGIC Clusters with **high I/O wait** are spending time waiting for storage. Recommendations:
 # MAGIC - **Enable Delta Cache** - caches remote data on local SSD
 # MAGIC - **Use Liquid Clustering** - effective file pruning (replaces Z-ordering)
-# MAGIC - **Use storage-optimized nodes** - L-series VMs with local NVMe
+# MAGIC - **Use storage-optimized nodes** - Local NVMe/SSD for faster I/O
 
 # COMMAND ----------
 
@@ -251,7 +251,7 @@ try:
         COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
         CASE 
             WHEN io.avg_io_wait_percent >= {io_wait_threshold} * 2 THEN '🔴 HIGH - Delta Cache + Liquid Clustering for file pruning'
-            WHEN io.avg_io_wait_percent >= {io_wait_threshold} THEN '🟠 I/O-bound - Delta Cache, Liquid Clustering, L-series'
+            WHEN io.avg_io_wait_percent >= {io_wait_threshold} THEN '🟠 I/O-bound - Delta Cache, Liquid Clustering'
             ELSE '🟡 MODERATE - Consider Liquid Clustering for file pruning'
         END AS recommendation
     FROM system.compute.clusters c
@@ -273,7 +273,7 @@ except Exception as e:
 # MAGIC ### 🧠 High Memory Utilization Clusters
 # MAGIC 
 # MAGIC Clusters with **high memory usage or swap activity** are memory-constrained. Recommendations:
-# MAGIC - **Use memory-optimized nodes** - E-series VMs
+# MAGIC - **Use memory-optimized nodes** - Higher memory-to-CPU ratio
 # MAGIC - **Use larger nodes** - More memory per node
 # MAGIC - **Add more workers** - Distribute memory pressure across cluster
 # MAGIC - **Optimize queries** - Reduce shuffles, use broadcast joins for small tables
@@ -326,8 +326,8 @@ try:
         COALESCE(cc.total_dbus, 0) AS total_dbus,
         COALESCE(cc.total_cost_usd, 0) AS total_cost_usd,
         CASE 
-            WHEN mem.avg_swap_percent >= {swap_threshold} THEN '🔴 SWAPPING - E-series, larger nodes, more workers'
-            WHEN mem.avg_memory_percent >= {memory_threshold} THEN '🟠 Memory-bound - E-series, larger nodes, more workers'
+            WHEN mem.avg_swap_percent >= {swap_threshold} THEN '🔴 SWAPPING - larger nodes, more workers'
+            WHEN mem.avg_memory_percent >= {memory_threshold} THEN '🟠 Memory-bound - larger nodes, more workers'
             ELSE '🟡 MODERATE - Monitor for memory pressure'
         END AS recommendation
     FROM system.compute.clusters c
@@ -349,9 +349,9 @@ except Exception as e:
 # MAGIC ### 📊 Resource Utilization Summary
 # MAGIC 
 # MAGIC Overview of resource bottlenecks across all clusters:
-# MAGIC - **CPU-bound** → Enable Photon, compute-optimized (F-series), larger nodes, or more workers
-# MAGIC - **I/O-bound** → Delta Cache, Liquid Clustering for file pruning, storage-optimized (L-series)
-# MAGIC - **Memory-bound** → Memory-optimized (E-series), larger nodes, or more workers
+# MAGIC - **CPU-bound** → Enable Photon, compute-optimized, larger nodes, or more workers
+# MAGIC - **I/O-bound** → Delta Cache, Liquid Clustering for file pruning, storage-optimized
+# MAGIC - **Memory-bound** → Memory-optimized , larger nodes, or more workers
 
 # COMMAND ----------
 
@@ -407,9 +407,9 @@ try:
     SELECT 
         bottleneck_type,
         CASE 
-            WHEN bottleneck_type = 'CPU-bound' THEN '⚡ Enable Photon, compute-optimized (F-series), larger nodes, or more workers'
-            WHEN bottleneck_type = 'I/O-bound' THEN '💾 Delta Cache, Liquid Clustering for file pruning, storage-optimized (L-series)'
-            WHEN bottleneck_type = 'Memory-bound' THEN '🧠 Memory-optimized (E-series), larger nodes, or more workers'
+            WHEN bottleneck_type = 'CPU-bound' THEN '⚡ Enable Photon, compute-optimized, larger nodes, or more workers'
+            WHEN bottleneck_type = 'I/O-bound' THEN '💾 Delta Cache, Liquid Clustering for file pruning, storage-optimized'
+            WHEN bottleneck_type = 'Memory-bound' THEN '🧠 Memory-optimized , larger nodes, or more workers'
             ELSE '✅ No immediate action needed'
         END AS recommendation,
         COUNT(*) AS cluster_count,

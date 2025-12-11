@@ -24,9 +24,9 @@ This toolkit consists of **two notebooks**:
 
 | Bottleneck | What We Check | Recommendation |
 |------------|---------------|----------------|
-| **CPU-bound** | High CPU usage on worker nodes | Enable Photon, compute-optimized (F-series), larger nodes, more workers |
-| **I/O-bound** | High I/O wait percentage | Delta Cache, Liquid Clustering for file pruning, storage-optimized (L-series) |
-| **Memory-bound** | High memory or swap usage | Memory-optimized (E-series), larger nodes, more workers |
+| **CPU-bound** | High CPU usage on worker nodes | Enable Photon, compute-optimized, larger nodes, more workers |
+| **I/O-bound** | High I/O wait percentage | Delta Cache, Liquid Clustering for file pruning, storage-optimized |
+| **Memory-bound** | High memory or swap usage | Memory-optimized , larger nodes, more workers |
 
 > ⚠️ **Disclaimer**: System tables provide high-level utilization metrics only. Spark cluster tuning is complex with many variables. The recommendations are **general guidelines** - there are many other ways to address performance issues depending on your specific workload.
 >
@@ -120,9 +120,9 @@ Different Azure VM series have different recommended minimum generations:
 
 | Bottleneck | Metric | Default | Action |
 |------------|--------|---------|--------|
-| **CPU-bound** | `avg_cpu_percent` | >=70% | Enable Photon, compute-optimized (F-series), larger nodes, more workers |
-| **I/O-bound** | `cpu_wait_percent` | >=10% | Delta Cache, Liquid Clustering for file pruning, storage-optimized (L-series) |
-| **Memory-bound** | `memory_used_percent` OR `swap_used_percent` | >=80% OR >=1% | Memory-optimized (E-series), larger nodes, more workers |
+| **CPU-bound** | `avg_cpu_percent` | >=70% | Enable Photon, compute-optimized, larger nodes, more workers |
+| **I/O-bound** | `cpu_wait_percent` | >=10% | Delta Cache, Liquid Clustering for file pruning, storage-optimized |
+| **Memory-bound** | `memory_used_percent` OR `swap_used_percent` | >=80% OR >=1% | Memory-optimized , larger nodes, more workers |
 
 ## 📊 Output
 
