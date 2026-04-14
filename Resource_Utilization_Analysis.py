@@ -1,43 +1,43 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # 📊 Resource Utilization Analysis
-# MAGIC 
+# MAGIC
 # MAGIC This notebook analyzes cluster resource utilization to identify performance bottlenecks and optimization opportunities.
-# MAGIC 
+# MAGIC
 # MAGIC > ⚠️ **Disclaimer**: System tables provide high-level utilization metrics only. Spark cluster tuning is a complex topic with many variables (data skew, shuffle optimization, broadcast joins, caching strategies, etc.). The recommendations below are **general guidelines** based on resource utilization patterns. There are many other ways to address performance issues depending on your specific workload characteristics. For comprehensive tuning, consider analyzing Spark UI, query plans, and application-specific metrics.
-# MAGIC 
+# MAGIC
 # MAGIC > 💡 **Best Practice**: First optimize your **workload & data layout** (query tuning, partitioning, Liquid Clustering, caching), then scale hardware if needed. Don't throw resources at inefficient code.
-# MAGIC 
+# MAGIC
 # MAGIC ---
-# MAGIC 
+# MAGIC
 # MAGIC ## 📋 What This Notebook Does
-# MAGIC 
+# MAGIC
 # MAGIC | Bottleneck | What We Check | Recommendation |
 # MAGIC |------------|---------------|----------------|
 # MAGIC | **CPU-bound** | High CPU usage on worker nodes | Enable Photon, compute-optimized, larger nodes, more workers |
 # MAGIC | **I/O-bound** | High I/O wait percentage | Enable Delta Cache, Liquid Clustering, storage-optimized |
 # MAGIC | **Memory-bound** | High memory or swap usage | Memory-optimized , larger nodes, more workers |
-# MAGIC 
+# MAGIC
 # MAGIC ---
-# MAGIC 
+# MAGIC
 # MAGIC ## 🎯 Thresholds (Configurable via Widgets)
-# MAGIC 
+# MAGIC
 # MAGIC | Bottleneck | Metric | Default | Action |
 # MAGIC |------------|--------|---------|--------|
 # MAGIC | **CPU-bound** | `avg_cpu_percent` | >=70% | Enable Photon, compute-optimized, larger nodes, more workers |
 # MAGIC | **I/O-bound** | `cpu_wait_percent` | >=10% | Enable Delta Cache, Liquid Clustering for effective file pruning, storage-optimized |
 # MAGIC | **Memory-bound** | `mem_used_percent` OR `mem_swap_percent` | >=80% OR >=1% | Memory-optimized , larger nodes, more workers |
-# MAGIC 
+# MAGIC
 # MAGIC ---
-# MAGIC 
+# MAGIC
 # MAGIC ## 🔐 Prerequisites
-# MAGIC 
+# MAGIC
 # MAGIC This notebook requires access to **Unity Catalog System Tables**:
 # MAGIC - `system.compute.clusters` - Cluster configurations
 # MAGIC - `system.compute.node_timeline` - Resource utilization metrics (**required for detailed analysis**)
 # MAGIC - `system.billing.usage` - Usage/billing data
 # MAGIC - `system.billing.list_prices` - List prices for cost calculation
-# MAGIC 
+# MAGIC
 # MAGIC > **Note**: This notebook requires access to `system.compute.node_timeline` for CPU, I/O, and memory metrics.
 
 # COMMAND ----------
@@ -110,19 +110,19 @@ print(f"   • Memory-bound threshold: memory >= {memory_threshold}% OR swap >= 
 # MAGIC %md
 # MAGIC ---
 # MAGIC ## 5️⃣ Resource Utilization Analysis
-# MAGIC 
+# MAGIC
 # MAGIC This section uses `system.compute.node_timeline` to analyze CPU, I/O, and memory utilization patterns.
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ### 🔥 High CPU Utilization Clusters
-# MAGIC 
+# MAGIC
 # MAGIC Clusters with **high CPU utilization** are compute-bound and may benefit from:
 # MAGIC - **Enable Photon** - 2-8x performance for SQL/DataFrame workloads
 # MAGIC - **Compute-optimized nodes** - Higher clock speeds, more cores per node
 # MAGIC - **Larger nodes or more workers** - More CPU cores to distribute load
-# MAGIC 
+# MAGIC
 # MAGIC > **Note**: This query uses `system.compute.node_timeline`. If you don't have access, this section will show an error.
 
 # COMMAND ----------
@@ -198,7 +198,7 @@ except Exception as e:
 # MAGIC %md
 # MAGIC ---
 # MAGIC ### 💾 High I/O Wait Clusters
-# MAGIC 
+# MAGIC
 # MAGIC Clusters with **high I/O wait** are spending time waiting for storage. Recommendations:
 # MAGIC - **Enable Delta Cache** - caches remote data on local SSD
 # MAGIC - **Use Liquid Clustering** - effective file pruning (replaces Z-ordering)
@@ -271,7 +271,7 @@ except Exception as e:
 # MAGIC %md
 # MAGIC ---
 # MAGIC ### 🧠 High Memory Utilization Clusters
-# MAGIC 
+# MAGIC
 # MAGIC Clusters with **high memory usage or swap activity** are memory-constrained. Recommendations:
 # MAGIC - **Use memory-optimized nodes** - Higher memory-to-CPU ratio
 # MAGIC - **Use larger nodes** - More memory per node
@@ -347,7 +347,7 @@ except Exception as e:
 # MAGIC %md
 # MAGIC ---
 # MAGIC ### 📊 Resource Utilization Summary
-# MAGIC 
+# MAGIC
 # MAGIC Overview of resource bottlenecks across all clusters:
 # MAGIC - **CPU-bound** → Enable Photon, compute-optimized, larger nodes, or more workers
 # MAGIC - **I/O-bound** → Delta Cache, Liquid Clustering for file pruning, storage-optimized
@@ -427,8 +427,69 @@ except Exception as e:
 
 # MAGIC %md
 # MAGIC ---
+# MAGIC ### ⏱️ Node Type Runtime & Cluster Configuration
+# MAGIC
+# MAGIC Runtime hours per node type with cluster configuration details, filtered by the **Lookback Period** widget. Shows compute type, DBR version, autoscaling config, and total runtime for each cluster.
+
+# COMMAND ----------
+
+# Node type runtime with cluster type and configuration details
+try:
+    node_runtime_query = f"""
+    WITH node_runtimes AS (
+        SELECT
+            nt.cluster_id,
+            CASE WHEN nt.driver THEN 'Driver' ELSE 'Worker' END AS node_role,
+            SUM(
+                TIMESTAMPDIFF(SECOND, nt.start_time, nt.end_time)
+            ) / 3600.0 AS runtime_hours
+        FROM system.compute.node_timeline nt
+        WHERE nt.start_time >= date_sub(current_date(), {lookback_days})
+        GROUP BY nt.cluster_id, nt.driver
+    ),
+    active_cluster_ids AS (
+        SELECT DISTINCT cluster_id FROM node_runtimes
+    ),
+    latest_cluster_config AS (
+        SELECT c.*,
+            ROW_NUMBER() OVER (PARTITION BY c.cluster_id ORDER BY c.change_time DESC) AS rn
+        FROM system.compute.clusters c
+        INNER JOIN active_cluster_ids a ON c.cluster_id = a.cluster_id
+        WHERE {workspace_clause}
+    )
+    SELECT
+        c.cluster_source AS compute_type,
+        c.cluster_id,
+        c.cluster_name,
+        c.owned_by AS owner,
+        c.dbr_version,
+        c.driver_node_type,
+        c.worker_node_type,
+        c.worker_count,
+        c.min_autoscale_workers,
+        c.max_autoscale_workers,
+        c.auto_termination_minutes,
+        ROUND(COALESCE(nr_driver.runtime_hours, 0), 2) AS driver_runtime_hours,
+        ROUND(COALESCE(nr_worker.runtime_hours, 0), 2) AS worker_runtime_hours,
+        ROUND(COALESCE(nr_driver.runtime_hours, 0) + COALESCE(nr_worker.runtime_hours, 0), 2) AS total_runtime_hours
+    FROM latest_cluster_config c
+    LEFT JOIN node_runtimes nr_driver
+        ON c.cluster_id = nr_driver.cluster_id AND nr_driver.node_role = 'Driver'
+    LEFT JOIN node_runtimes nr_worker
+        ON c.cluster_id = nr_worker.cluster_id AND nr_worker.node_role = 'Worker'
+    WHERE c.rn = 1
+    ORDER BY total_runtime_hours DESC
+    """
+    display(spark.sql(node_runtime_query))
+except Exception as e:
+    print(f"⚠️ Could not query node type runtimes: {e}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ---
 # MAGIC ## 🔗 Quick Reference Links
-# MAGIC 
+# MAGIC
 # MAGIC - [Compute System Tables Documentation](https://learn.microsoft.com/en-us/azure/databricks/admin/system-tables/compute)
 # MAGIC - [Photon Runtime](https://docs.databricks.com/runtime/photon.html)
 # MAGIC - [Delta Cache](https://docs.databricks.com/delta/optimizations/delta-cache.html)
@@ -441,4 +502,4 @@ except Exception as e:
 # MAGIC **Created for WAF Review**  
 # MAGIC **Last Updated**: 10 Dec 2025  
 # MAGIC **Author**: Steven Tan (cheeyutcy@gmail.com)
-
+# MAGIC
